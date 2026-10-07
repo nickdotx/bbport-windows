@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status 2026-10-07: ON HOLD.** droogie/bbhost (GPL-3, independent, Windows+Linux host with its own renderer and an existing Windows layer) appeared the same day; the project base is decided by a side-by-side test on the RTX 3090 box (`research/SIDE_BY_SIDE_TEST.md` in the working folder) before any task below is executed.
+
 **Goal:** Build upstream bbport 0.3's GPU library, `bb-gpu-capabilities.exe` and the device-less renderer tests with MSYS2 CLANG64 on Windows, run them on this laptop, and have Windows + Linux-compile CI green — without touching the C runtime yet (that is plan A-2/A-3).
 
 **Architecture:** A root `CMakeLists.txt` for Windows wraps the existing `gpu/CMakeLists.txt` (which gains `if(WIN32)` branches: static `libbbgpu.a`, pinned submodules for the three header-only libraries MSYS2 lacks, no X11). Linux-only code in `gpu/` is routed through a tiny platform facade (`gpu/shim/bbport_platform.h`, Windows implementation in `gpu/shim/win32/`), the Linux-only diagnostic modules are replaced by stubs on Windows, and the `sigsetjmp` recovery points become a `BbRecoverBuf`/`BB_RECOVER_SET` abstraction whose Windows implementation arrives in plan A-3. Linux keeps compiling (verified by CI) because every change is behind `#ifdef _WIN32` or is a pure bug fix.
