@@ -19,7 +19,7 @@ Goals
 Non-goals for A (own sub-projects later)
 - B: the bug catalog (0.3 regressions, `0x263b8e7`, texture budget, poisoned cache, device-lost survival, red-zone patcher).
 - C: DLSS Super Resolution, FSR 4 v07 validation on Ampere, frame generation.
-- D: DLC mounting, high-FPS game-logic fixes, boss/cutscene verification, KB/M, launcher GUI, packaging polish.
+- D: DLC mounting, high-FPS game-logic fixes, boss/cutscene verification, KB/M, launcher GUI, packaging polish, and the in-game settings menu restyle (decided 2026-10-07: keep upstream's Dear ImGui + Vulkan overlay and re-theme it — fonts, spacing, colours, tabbed layout — rather than switching toolkits; Nuklear was considered and rejected because the existing overlay, input capture and settings table would have to be rewritten and re-merged on every upstream release).
 - E: reverse-engineering track (IDA) feeding B, D and F.
 - F: DualSense native features the PS4 game never requests — adaptive (motorised) trigger effects, HD haptics, touchpad gestures, lightbar/player-LED reactions — driven by game events that E exposes (attacks, firearm shots, blood vials, damage, visceral attacks); designed after A boots the game.
 - Not supported: AMD/Intel GPUs on Windows, the 0.3 in-place (dma-buf) memory model, FSR 4.1.1 (needs a Mesa-only Vulkan extension), MSVC (the runtime relies on `__attribute__((sysv_abi))` and GNU asm).
