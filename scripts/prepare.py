@@ -61,14 +61,37 @@ def parse_self(data):
             raise ValueError("unsupported blocked segment layout")
         elf[p['offset']:p['offset'] + size] = span(data, off, size)
         covered.append((p['offset'], p['offset'] + size))
+    # Segments the SELF does not block (PT_SCE_COMMENT) keep their bytes after its declared file
+    # size, in program-header order; restoring them makes the ELF byte-exact (see self_digest).
+    file_size, = unpack('<Q', data, 16)
+    blocked_end = max((s['offset'] + s['size'] for s in segments), default=0)
+    tail = file_size if file_size >= blocked_end else None
     missing = []
     for i, p in enumerate(ph):
-        if p['filesz'] and not any(a <= p['offset'] and p['offset'] + p['filesz'] <= z
+        if not p['filesz'] or any(a <= p['offset'] and p['offset'] + p['filesz'] <= z
                                   for a, z in covered):
-            missing.append(i)
-            if p['type'] in (1, 2, 0x61000000, 0x61000010):
-                raise ValueError(f"required segment {i} is unavailable")
+            continue
+        if tail is not None and tail + p['filesz'] <= len(data):
+            elf[p['offset']:p['offset'] + p['filesz']] = span(data, tail, p['filesz'])
+            covered.append((p['offset'], p['offset'] + p['filesz']))
+            tail += p['filesz']
+            continue
+        missing.append(i)
+        if p['type'] in (1, 2, 0x61000000, 0x61000010):
+            raise ValueError(f"required segment {i} is unavailable")
     return elf, header, ph, segments, missing
+
+
+def self_digest(data):
+    """The SHA-256 of the original ELF as the SELF's extended header records it (hex), '' when
+    the header is not there. prepare() compares eboot.elf against it: equal means byte-exact."""
+    try:
+        count, = unpack('<H', data, 24)
+        base = 32 + count * 32
+        ehsize, phentsize, phnum = unpack('<HHH', data, base + 52)
+        return span(data, base + ehsize + phnum * phentsize + 32, 32).hex()
+    except (ValueError, struct.error):
+        return ''
 
 
 def sfo(data):
@@ -126,6 +149,19 @@ class GameCheckError(Exception):
     """Game files bbport does not run (game_check.py)."""
 
 
+BUNDLED_MODULES = ('libc.prx', 'libSceFios2.prx')  # linked into the image by link_modules.py
+
+
+def require_modules(game):
+    """The game's own modules bbport links; a dump without them cannot be prepared further."""
+    absent = ['sce_module/' + name for name in BUNDLED_MODULES
+              if not (game / 'sce_module' / name).is_file()]
+    if absent:
+        raise ValueError(f"{', '.join(absent)} missing from {game}: bbport links the game's own "
+                         "modules, so dump the sce_module folder too (decrypted like eboot.bin) and "
+                         "copy it into the game folder. eboot.elf was written regardless.")
+
+
 def prepare(game, out):
     source = (game / 'eboot.bin').read_bytes()
     elf, header, ph, segments, missing = parse_self(source)
@@ -143,6 +179,15 @@ def prepare(game, out):
     # bbport: only the supported executable runs (game_check.py); others fail in the game's code.
     if found := game_check.problem(game, hashlib.sha256(image).hexdigest()):
         raise GameCheckError(game_check.explain(*found))
+    out.mkdir(parents=True, exist_ok=True)
+    (out / 'eboot.elf').write_bytes(elf)
+    elf_sha256, digest = hashlib.sha256(elf).hexdigest(), self_digest(source)
+    if elf_sha256 == digest:
+        print(f"eboot.elf: SHA-256 {elf_sha256}, byte-exact (matches the SELF's digest of the original ELF)")
+    else:
+        print(f"eboot.elf: SHA-256 {elf_sha256}, not byte-exact (SELF digest {digest or 'absent'}; "
+              f"unavailable metadata headers {missing})")
+    require_modules(game)
     dp = next(p for p in ph if p['type'] == 2)
     dyn = []
     for pos in range(dp['offset'], dp['offset'] + dp['filesz'], 16):
@@ -213,7 +258,6 @@ def prepare(game, out):
                   'sceKernelMapDirectMemory', 'sceKernelReleaseDirectMemory', 'sceKernelMunmap')
     known = {nid(name): name for name in candidates}
     libc_evidence = inspect_libc(game / 'sce_module/libc.prx')
-    out.mkdir(parents=True, exist_ok=True)
     # A deliberately small format, consumed by probe.c; no host struct packing.
     with (out / 'boot.bin').open('wb') as f:
         f.write(struct.pack('<8sQQQQQQ', b'BBPROBE2', size, header[4], len(loads), len(relocs), len(names),
@@ -228,7 +272,6 @@ def prepare(game, out):
         for relocation in relocs:
             f.write(struct.pack('<QQqq', *relocation))
         f.write(image)
-    (out / 'eboot.elf').write_bytes(elf)
     (out / 'entry.bin').write_bytes(image[:1024])
     resources = collections.Counter()
     total_bytes = 0
@@ -239,7 +282,8 @@ def prepare(game, out):
     report = dict(source_sha256=hashlib.sha256(source).hexdigest(), source_bytes=len(source),
                   sfo=sfo((game / 'sce_sys/param.sfo').read_bytes()), entry=hex(header[4]),
                   image_bytes=size, program_headers=ph, self_segments=segments,
-                  unavailable_metadata_headers=missing, needed=[string(v) for t, v in dyn if t == 1],
+                  unavailable_metadata_headers=missing, elf_sha256=elf_sha256, self_digest=digest,
+                  elf_byte_exact=elf_sha256 == digest, needed=[string(v) for t, v in dyn if t == 1],
                   relocation_counts=dict(counts), import_count=len(names), imports=names,
                   import_name_hints={name: known[name.split('#')[0]] for name in names if name.split('#')[0] in known},
                   libc_evidence=libc_evidence,
@@ -249,7 +293,6 @@ def prepare(game, out):
     (out / 'analysis.json').write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
     print(f"{report['sfo'].get('TITLE')} | entry={header[4]:#x} | image={size:,} bytes")
     print(f"{len(names)} imported symbols; {sum(counts.values()):,} relocations; {len(report['needed'])} required modules")
-    print(f"Unavailable non-loadable metadata headers: {missing}; not a byte-exact ELF reconstruction")
     print(f"Output: {out.resolve()}")
     print(f"libc _init_env verified RET: {libc_evidence['init_env_is_ret']}")
 

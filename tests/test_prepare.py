@@ -1,9 +1,12 @@
 from paths import ROOT
+import hashlib
 import struct
 import unittest
 import tempfile
 from pathlib import Path
-from prepare import parse_self, inspect_libc, nid
+from unittest import mock
+import prepare
+from prepare import parse_self, inspect_libc, nid, self_digest
 
 
 def fixture():
@@ -18,7 +21,53 @@ def fixture():
     return data
 
 
+def fixture_with_comment():
+    """A SELF whose PT_SCE_COMMENT is not a blocked segment: its bytes follow the SELF's declared
+    file size, and the extended header carries the SHA-256 of the original ELF."""
+    original = bytearray(0x1018)
+    struct.pack_into('<16sHHIQQQIHHHHHH', original, 0,
+                     b'\x7fELF\x02\x01\x01\x09', 0xfe10, 62, 1, 0, 64, 0, 0, 64, 56, 2, 0, 0, 0)
+    struct.pack_into('<IIQQQQQQ', original, 64, 1, 5, 0x1000, 0, 0, 16, 32, 0x1000)
+    struct.pack_into('<IIQQQQQQ', original, 120, 0x6fffff01, 0, 0x1010, 0, 0, 8, 0, 16)
+    original[0x1000:0x1010] = bytes(range(16))
+    original[0x1010:0x1018] = b'COMMENT!'
+    data = bytearray(0x210)
+    data[:4] = b'O\x15=\x1d'
+    struct.pack_into('<Q', data, 16, 0x210)  # declared file size: the blocked segments end here
+    struct.pack_into('<H', data, 24, 1)
+    struct.pack_into('<QQQQ', data, 32, 0x800, 0x200, 16, 16)
+    data[64:64 + 176] = original[:176]  # ELF header and program headers
+    data[240 + 32:240 + 64] = hashlib.sha256(original).digest()  # extended header: digest
+    data[0x200:0x210] = original[0x1000:0x1010]
+    data += original[0x1010:0x1018]  # the comment segment, after the declared file size
+    return bytes(data), bytes(original)
+
+
 class SelfTests(unittest.TestCase):
+    def test_unblocked_comment_segment_restored_from_the_self_tail(self):
+        data, original = fixture_with_comment()
+        elf, header, ph, segments, missing = parse_self(data)
+        self.assertEqual(bytes(elf), original)
+        self.assertEqual(missing, [])
+        self.assertEqual(self_digest(data), hashlib.sha256(original).hexdigest())
+
+    def test_comment_segment_without_tail_stays_missing(self):
+        data, original = fixture_with_comment()
+        elf, header, ph, segments, missing = parse_self(data[:0x210])  # a dump without the tail
+        self.assertEqual(missing, [1])
+        self.assertEqual(len(elf), len(original))
+        self.assertEqual(elf[0x1010:0x1018], bytes(8))
+
+    def test_eboot_elf_is_written_before_the_bundled_modules_are_required(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game, out = Path(tmp) / 'game', Path(tmp) / 'out'
+            game.mkdir()
+            (game / 'eboot.bin').write_bytes(fixture())
+            with mock.patch.object(prepare.game_check, 'problem', return_value=None):
+                with self.assertRaisesRegex(ValueError, 'sce_module/libc.prx'):
+                    prepare.prepare(game, out)
+            self.assertEqual((out / 'eboot.elf').read_bytes(), bytes(parse_self(fixture())[0]))
+
     def test_libc_ret_contract_is_verified_from_symbol_and_code(self):
         def libc(instruction):
             data=bytearray(0x320)
