@@ -12,6 +12,7 @@ Goals
 - Build `bb-probe.exe` (loader + HLE runtime + statically linked GPU library) from upstream 0.3 sources with MSYS2 CLANG64, with every Windows-specific line behind `#ifdef _WIN32` / `if(WIN32)` in separate files, so upstream `master` keeps merging cheaply.
 - Boot a decrypted CUSA03173 v1.09 dump to gameplay on Windows 10/11 + NVIDIA: title screen, new game through character creation, Hunter's Dream, Central Yharnam, save and continue, gamepad, audio, 1080p with FSR 3.1.
 - Replace each Linux facility with a Win32-native equivalent that preserves PS4 semantics (16 KiB page granularity, memory aliasing, TLS, fault-driven GPU write tracking, mutex types, absolute-time waits).
+- DualSense (PS5) and DualShock 4 controllers behave exactly as on the PS4, over USB and Bluetooth: every button, both sticks, analog L2/R2, touchpad click (gesture menu) and finger positions (left/right halves, swipes), rumble, hot-plug — through SDL3's HIDAPI drivers (see §5.6a).
 - Produce a portable zip that runs on a test machine with nothing installed, and a crash-log/return-log loop (build on the laptop, test on the RTX 3090 PC).
 - Keep upstream's Linux build compiling (CI), without running it.
 
@@ -19,7 +20,8 @@ Non-goals for A (own sub-projects later)
 - B: the bug catalog (0.3 regressions, `0x263b8e7`, texture budget, poisoned cache, device-lost survival, red-zone patcher).
 - C: DLSS Super Resolution, FSR 4 v07 validation on Ampere, frame generation.
 - D: DLC mounting, high-FPS game-logic fixes, boss/cutscene verification, KB/M, launcher GUI, packaging polish.
-- E: reverse-engineering track (IDA) feeding B and D.
+- E: reverse-engineering track (IDA) feeding B, D and F.
+- F: DualSense native features the PS4 game never requests — adaptive (motorised) trigger effects, HD haptics, touchpad gestures, lightbar/player-LED reactions — driven by game events that E exposes (attacks, firearm shots, blood vials, damage, visceral attacks); designed after A boots the game.
 - Not supported: AMD/Intel GPUs on Windows, the 0.3 in-place (dma-buf) memory model, FSR 4.1.1 (needs a Mesa-only Vulkan extension), MSVC (the runtime relies on `__attribute__((sysv_abi))` and GNU asm).
 
 ## 2. Decisions and rationale
@@ -178,6 +180,16 @@ Stacks
 - Errors map to the FreeBSD errno values upstream expects (`ERROR_FILE_NOT_FOUND`/`PATH_NOT_FOUND` → ENOENT, `ERROR_ACCESS_DENIED` → EACCES, `ERROR_ALREADY_EXISTS`/`FILE_EXISTS` → EEXIST, `ERROR_DIR_NOT_EMPTY` → ENOTEMPTY, `ERROR_SHARING_VIOLATION` → EBUSY). Errno is computed per call from `GetLastError()`, never left stale.
 - The game's own mounts, fd table, path normalisation (`/app0`, `/hostapp`, `/savedata0–15`, `/temp0`, `/download0`, `/data`), save-data layout and the "sound hack" are untouched. NTFS case-insensitivity is a superset of what the game needs.
 
+### 5.6a Controllers — PS4 parity for DualSense and DualShock 4
+
+What the game asks for: `scePadInit/Open/Close`, `scePadReadState` (buttons, sticks, analog triggers, touchpad fingers, orientation/acceleration/angular velocity, connection state), `scePadGetControllerInformation` (connection type, touchpad resolution 1920×942, stick dead zones), `scePadSetVibration` (large/small motor 0–255), and the motion-setup calls `scePadResetOrientation`, `scePadSetAngularVelocityDeadbandState`, `scePadSetTiltCorrectionState`. It never calls `scePadSetLightBar`. Upstream's `src/runtime_pad.c` already serves these from SDL3 (gamepad buttons/axes, `SDL_GetGamepadTouchpadFinger`, `SDL_RumbleGamepad`, 0.3 remapping, `BB_GAMEPAD` selection, keyboard fallback) and is platform-neutral; on Windows the work is configuration and verification:
+- SDL3's HIDAPI drivers are the only path used for PS controllers: hints `SDL_HINT_JOYSTICK_HIDAPI_PS4`, `SDL_HINT_JOYSTICK_HIDAPI_PS5` on, `SDL_HINT_JOYSTICK_ENHANCED_REPORTS` enabled so touchpad, rumble and sensors also work over Bluetooth, `SDL_HINT_JOYSTICK_HIDAPI_PS5_PLAYER_LED` on. Set in the window thread before `SDL_InitSubSystem(SDL_INIT_GAMEPAD)`.
+- Mapping is the SDL gamepad layout; the PS4 button bits, 0–255 stick/trigger ranges, the touchpad button, up to two finger positions scaled to 1920×942, and `connectedCount` follow upstream's existing conversion. Orientation stays the identity quaternion and acceleration/angular velocity zero, as upstream reports (the game's motion calls are engine boilerplate).
+- Rumble: `scePadSetVibration` values are re-issued on every change with an open-ended duration, so a held vibration never times out; DualSense rumble runs through SDL's haptic rumble emulation (needs enhanced reports), DualShock 4 through its motors. `SDL_RumbleGamepadTriggers` (Xbox impulse triggers) is never used.
+- Lightbar: the PS4 lights player 1 blue; `pad_open` calls `SDL_SetGamepadLED(gamepad, 0, 0, 64)` once for parity (harmless on pads without a lightbar).
+- Hot-plug: a disconnected pad reports `connected = 0` and `scePadReadState` returns the "not connected" error as on PS4; the next `SDL_EVENT_GAMEPAD_ADDED` re-opens the selected pad without restarting; the event pump already runs on the window thread.
+- Known Windows interference documented in `README-Windows.md`: DS4Windows, Steam Input (Steam overlay/desktop configuration) and reWASD present the pad as an Xbox controller — disable them for the game; Bluetooth pairing must be done in Windows settings first; wired USB is the lowest-latency path.
+
 ### 5.7 `gpu/` Windows bits (`gpu/shim/win32/` + guarded edits)
 
 - `gpu/shim/window.cpp`: accept SDL's `windows` video driver; expose the HWND through `SDL_PROP_WINDOW_WIN32_HWND_POINTER`; `vk_platform.cpp`'s existing `VK_KHR_win32_surface` branch is enabled; borderless fullscreen for `BB_FULLSCREEN=1`; on `SDL_EVENT_WINDOW_MINIMIZED` / a 0×0 swapchain extent the presenter skips presents and defers swapchain recreation until restore (fixes the exit-23 of upstream issue #31).
@@ -225,6 +237,7 @@ Stacks
 - Upstream's C tests (`test_runtime`, `test_sema`, `test_content`, `test_pad`, `test_file_mods`) built and run under CTest on Windows; upstream's Python tests run where platform-neutral (`test_prepare`, `test_link_libc`, `test_patches`, `test_mods` with junctions, `test_game_check` extended, `test_probe`, `test_run_settings` adapted to `run.py`).
 - Upstream's C++ renderer tests that need no Vulkan device (`motion-history-test`, `motion-shader-test`, `ui-composition-test`) build and run on Windows: `tests/test_gpu_runtime_stubs.cpp` declares `runtime_fault_recover` as a thread-local `host_jmpbuf *` and stubs `host_setjmp`/`host_longjmp`, and the targets link `winmm ws2_32 psapi onecore` (the arrangement DarkIzuku's CI uses with yumlevi's names). The device-dependent ones (`scene-resolution-test`, `taa-shader-test`, `camera-motion-test`, `upscaler-support-test`) run only when a Lavapipe ICD is present on the machine and are otherwise reported as skipped, not failed.
 - Smoke route: a `BB_PAD_FILE` script (title → new game → character creation defaults → Hunter's Dream) recorded on the RTX 3090 PC; `run.py --smoke` replays it with `BB_TIMEOUT` and checks the log for the Hunter's Dream map load.
+- Controller checklist (manual, on the RTX 3090 PC, for DualSense over USB, DualSense over Bluetooth, DualShock 4 over USB and over Bluetooth): every face/shoulder/stick/system button registers in `bb-gpu-capabilities --read-input`; left/right stick full range and neutral centre; L2/R2 analog ramps (R2 attack strength); touchpad click opens the gesture menu; touchpad left/right half press maps as on PS4; a two-finger swipe moves the debug-menu cursor; rumble on taking damage and on firearm shots; lightbar blue; unplug and replug mid-game resumes control within 2 s; no double input with the keyboard connected.
 - Manual acceptance on the RTX 3090 PC per §9; logs and crash files returned for every run.
 
 ## 8. Error handling and exit codes
@@ -246,7 +259,7 @@ No Windows code path silently returns success on an OS failure; no import is sil
 ## 9. Acceptance criteria (definition of done for A)
 
 1. `cmake --build` and `ctest` pass on the laptop (MSYS2 CLANG64), including `test_host_win32`.
-2. The zip runs on the RTX 3090 PC with the user's dump: game check passes; title screen; new game through character creation; Hunter's Dream; Central Yharnam; save and continue; gamepad and audio; 1080p output with FSR 3.1 (Native AA or Quality).
+2. The zip runs on the RTX 3090 PC with the user's dump: game check passes; title screen; new game through character creation; Hunter's Dream; Central Yharnam; save and continue; audio; 1080p output with FSR 3.1 (Native AA or Quality); the controller checklist of §7 passes for the DualSense over USB and Bluetooth and for a DualShock 4.
 3. 15 minutes in Central Yharnam without a crash at 1080p.
 4. Minimize and Alt-Tab do not end the session.
 5. Every fatal fault leaves `out/crash-*.log` with a guest offset or module+offset.
