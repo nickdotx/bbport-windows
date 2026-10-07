@@ -12,7 +12,7 @@ The dump is Bloodborne CUSA00900 (US digital edition) with the 1.09 update merge
 | loaded image of it | `071df19c8880086d97182dbc057bc8cb37badaca57d9112683836b24a0444c0a` | = bbport's `SUPPORTED_IMAGE` (game check passes) |
 | `out\eboot.elf` | `941f887a562aae054fac35af8cc8f27cf075f3d4cc2e029fb5ae2a663aaa5ae7` | = bbhost's required eboot hash (the SELF's own digest of the original ELF) |
 
-**Missing: `CUSA00900\sce_module\` is empty.** bbport links the game's own `libc.prx` and `libSceFios2.prx` from that folder (the full game ships seven `.prx` there), so its half of the test cannot start until the folder is dumped again — decrypted the same way as `eboot.bin` (each file starts with the bytes `4F 15 3D 1D`) and copied into `CUSA00900\sce_module\`. bbhost does not need it. The bbhost half can run now.
+**The dump is incomplete (an interrupted copy).** Five folders are empty: `CUSA00900\sce_module\` and, inside `dvdroot_ps4`, `script`, `sfx`, `shader` and `sound` — the folders after `remo` in alphabetical order. The first bbhost run (2026-10-07, RTX 3070 Ti laptop) died at start when the game could not open `dvdroot_ps4\shader\gxgui.shaderbnd.dcx`; that is the dump, not bbhost. Dump those five folders again with the same tool (`sce_module` decrypted like `eboot.bin`: each `.prx` starts with the bytes `4F 15 3D 1D`) and copy them into `CUSA00900\`. `python scripts\prepare.py <game> --out <dir>` from this clone now lists every empty or missing folder, so run it after copying. bbhost needs the four `dvdroot_ps4` folders; bbport needs all five.
 
 ## 0. Preparation (once)
 

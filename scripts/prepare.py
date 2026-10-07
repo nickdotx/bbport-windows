@@ -150,16 +150,28 @@ class GameCheckError(Exception):
 
 
 BUNDLED_MODULES = ('libc.prx', 'libSceFios2.prx')  # linked into the image by link_modules.py
+# Every folder of the 1.09 game's dvdroot_ps4. An interrupted dump leaves the last ones empty
+# (seen 2026-10-07: script, sfx, shader, sound and sce_module empty; the game then dies at its
+# first missing shader bundle instead of saying what is wrong).
+DVDROOT_FOLDERS = ('action', 'chr', 'event', 'facegen', 'map', 'menu', 'movie', 'msg', 'mtd', 'obj',
+                   'other', 'param', 'paramdef', 'parts', 'remo', 'script', 'sfx', 'shader', 'sound')
 
 
-def require_modules(game):
-    """The game's own modules bbport links; a dump without them cannot be prepared further."""
-    absent = ['sce_module/' + name for name in BUNDLED_MODULES
-              if not (game / 'sce_module' / name).is_file()]
-    if absent:
-        raise ValueError(f"{', '.join(absent)} missing from {game}: bbport links the game's own "
-                         "modules, so dump the sce_module folder too (decrypted like eboot.bin) and "
-                         "copy it into the game folder. eboot.elf was written regardless.")
+def require_dump(game):
+    """Every file bbport and the game need beyond eboot.bin, named together when any is absent:
+    the modules link_modules.py links and the dvdroot_ps4 folders (empty = interrupted dump)."""
+    problems = [f'sce_module/{name} (missing)' for name in BUNDLED_MODULES
+                if not (game / 'sce_module' / name).is_file()]
+    for folder in DVDROOT_FOLDERS:
+        path = game / 'dvdroot_ps4' / folder
+        if not path.is_dir():
+            problems.append(f'dvdroot_ps4/{folder} (missing)')
+        elif not any(p.is_file() for p in path.rglob('*')):
+            problems.append(f'dvdroot_ps4/{folder} (empty)')
+    if problems:
+        raise ValueError(f"incomplete dump in {game}: {', '.join(problems)}. Dump those again with "
+                         "the same tool (sce_module decrypted like eboot.bin) and copy them into "
+                         "the game folder. eboot.elf was written regardless.")
 
 
 def prepare(game, out):
@@ -187,7 +199,7 @@ def prepare(game, out):
     else:
         print(f"eboot.elf: SHA-256 {elf_sha256}, not byte-exact (SELF digest {digest or 'absent'}; "
               f"unavailable metadata headers {missing})")
-    require_modules(game)
+    require_dump(game)
     dp = next(p for p in ph if p['type'] == 2)
     dyn = []
     for pos in range(dp['offset'], dp['offset'] + dp['filesz'], 16):

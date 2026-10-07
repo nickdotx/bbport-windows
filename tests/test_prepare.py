@@ -58,7 +58,7 @@ class SelfTests(unittest.TestCase):
         self.assertEqual(len(elf), len(original))
         self.assertEqual(elf[0x1010:0x1018], bytes(8))
 
-    def test_eboot_elf_is_written_before_the_bundled_modules_are_required(self):
+    def test_eboot_elf_is_written_before_the_dump_is_required_complete(self):
         with tempfile.TemporaryDirectory() as tmp:
             game, out = Path(tmp) / 'game', Path(tmp) / 'out'
             game.mkdir()
@@ -67,6 +67,25 @@ class SelfTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'sce_module/libc.prx'):
                     prepare.prepare(game, out)
             self.assertEqual((out / 'eboot.elf').read_bytes(), bytes(parse_self(fixture())[0]))
+
+    def test_incomplete_dump_names_every_empty_or_missing_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            game = Path(tmp)
+            for name in prepare.BUNDLED_MODULES:
+                (game / 'sce_module' / name).parent.mkdir(exist_ok=True)
+                (game / 'sce_module' / name).write_bytes(b'x')
+            for folder in prepare.DVDROOT_FOLDERS:
+                (game / 'dvdroot_ps4' / folder).mkdir(parents=True)
+                (game / 'dvdroot_ps4' / folder / 'a.bin').write_bytes(b'x')
+            prepare.require_dump(game)  # complete: no complaint
+            (game / 'dvdroot_ps4' / 'shader' / 'a.bin').unlink()  # left empty by an interrupted copy
+            import shutil
+            shutil.rmtree(game / 'dvdroot_ps4' / 'sound')
+            with self.assertRaisesRegex(ValueError, r'dvdroot_ps4/shader \(empty\).*dvdroot_ps4/sound \(missing\)'):
+                prepare.require_dump(game)
+            (game / 'sce_module' / 'libc.prx').unlink()
+            with self.assertRaisesRegex(ValueError, r'sce_module/libc.prx \(missing\).*dvdroot_ps4/shader'):
+                prepare.require_dump(game)
 
     def test_libc_ret_contract_is_verified_from_symbol_and_code(self):
         def libc(instruction):
