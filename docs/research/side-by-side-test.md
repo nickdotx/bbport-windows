@@ -1,8 +1,10 @@
-# Side-by-side test: bbhost v0.2.14 vs bbport (Supermedo windows-v1.4) — RTX 3090 box
+# Side-by-side test: bbhost (our fixed build of 2026-10-08) vs bbport (Supermedo windows-v1.5) — laptop first, then the RTX 3090 box
 
-Purpose: decide which project becomes our base. Same machine, same dump, same route, same settings. Budget ~2.5 hours. Written 2026-10-07, updated the same evening for the real dump.
+Purpose: decide which project becomes our base. Same machine, same dump, same route, same settings. Budget ~2.5 hours. Written 2026-10-07, updated the same evening for the real dump; updated 2026-10-08: the dump is complete, the bbhost column uses our fixed build (the v0.2.14 release freezes in the intro movie on Windows), the bbport column uses Supermedo's windows-v1.5 (released 2026-10-07 with DLSS).
 
-## Dump status (verified 2026-10-07)
+Order: the laptop (RTX 3070 Ti 8 GB, 1920×1080, 60 FPS, no upscaling) runs each tool first, so the logs can be read live; the 3090 box then runs the full route at 1440p. Laptop status: bbhost done 2026-10-08 01:40–02:00 (run 7: launch, character creation, intro with sound, clinic, Dream, saves — all fine; performance not judged, the laptop ran on a weak charger); bbport pending.
+
+## Dump status (complete since 2026-10-08)
 
 The dump is Bloodborne CUSA00900 (US digital edition) with the 1.09 update merged: `sce_sys\param.sfo` says `APP_VER 01.09`, the change log lists 1.01–1.09, and the add-on licences for The Old Hunters (`SPEXPANSIONDLC03`) and both messenger hats are in it. Its `eboot.bin` is byte-identical to the CUSA03173 1.09 one, so both tools accept it:
 
@@ -12,15 +14,15 @@ The dump is Bloodborne CUSA00900 (US digital edition) with the 1.09 update merge
 | loaded image of it | `071df19c8880086d97182dbc057bc8cb37badaca57d9112683836b24a0444c0a` | = bbport's `SUPPORTED_IMAGE` (game check passes) |
 | `out\eboot.elf` | `941f887a562aae054fac35af8cc8f27cf075f3d4cc2e029fb5ae2a663aaa5ae7` | = bbhost's required eboot hash (the SELF's own digest of the original ELF) |
 
-**The dump is incomplete (an interrupted copy).** Five folders are empty: `CUSA00900\sce_module\` and, inside `dvdroot_ps4`, `script`, `sfx`, `shader` and `sound` — the folders after `remo` in alphabetical order. The first bbhost run (2026-10-07, RTX 3070 Ti laptop) died at start when the game could not open `dvdroot_ps4\shader\gxgui.shaderbnd.dcx`; that is the dump, not bbhost. Dump those five folders again with the same tool (`sce_module` decrypted like `eboot.bin`: each `.prx` starts with the bytes `4F 15 3D 1D`) and copy them into `CUSA00900\`. `python scripts\prepare.py <game> --out <dir>` from this clone now lists every empty or missing folder, so run it after copying. bbhost needs the four `dvdroot_ps4` folders; bbport needs all five.
+The copy was interrupted on 2026-10-07 (`sce_module` and, under `dvdroot_ps4`, `script`, `sfx`, `shader`, `sound` were empty; the first bbhost run died at the first missing shader) and completed on 2026-10-08: 28,736 files under `dvdroot_ps4` (29.4 GB) and the 7 modules in `sce_module`. `python scripts\prepare.py <game> --out <dir>` passes on it (byte-exact `eboot.elf`; it names any empty or missing folder) and `scripts\link_modules.py` links both bundled modules (238 native bindings, 524 host imports, 17,127 TLS sites patched). bbhost needs the four `dvdroot_ps4` folders; bbport needs all five.
 
 ## 0. Preparation (once)
 
 Folders (any drive; `D:\bb\` below):
 - `D:\bb\game\CUSA00900\` — the dump folder above, copied as it is (plus `sce_module\` once dumped). Both tools read this folder; neither writes into it.
-- `D:\bb\game\eboot.elf` — the ELF written by `scripts\prepare.py`. Check it on the 3090 box: `certutil -hashfile D:\bb\game\eboot.elf SHA256` must print `941f887a…5ae7`. (To regenerate: from this clone, `python scripts\prepare.py D:\bb\game\CUSA00900 --out D:\bb\out`; it writes `D:\bb\out\eboot.elf`, prints whether it is byte-exact, and then stops at the missing modules until `sce_module` exists — that is expected.)
-- `D:\bb\bbhost\` — unzip `bbhost-win-v0.2.14.zip` from https://github.com/droogie/bbhost/releases/tag/v0.2.14. Verify first: download `SHA256SUMS` from the same page and compare `certutil -hashfile bbhost-win-v0.2.14.zip SHA256` with its line.
-- `D:\bb\bbport\` — unzip the `windows-v1.4` zip from https://github.com/Supermedo/bloodborne_pc/releases/tag/windows-v1.4 (no published hashes; its launcher checks GitHub for updates on start — decline any update during the test). Only once `sce_module` is in place.
+- `D:\bb\game\eboot.elf` — the ELF written by `scripts\prepare.py`. Check it on the 3090 box: `certutil -hashfile D:\bb\game\eboot.elf SHA256` must print `941f887a…5ae7`. (To regenerate: from this clone, `python scripts\prepare.py D:\bb\game\CUSA00900 --out D:\bb\out`; it writes `D:\bb\out\eboot.elf`, prints whether it is byte-exact and names any empty or missing dump folder.)
+- `D:\bb\bbhost\` — unzip **our fixed build** of bbhost (built from our bbhost clone, branch `win-16k-dmem-and-movie`, with the CLANG64 DLLs beside the exe; check the zip's SHA-256 against the one noted when it was packaged). Not the v0.2.14 release: on Windows its intro movie freezes after ~6 s (16 KiB audio-buffer maps against the 64 KiB view granularity; fixed on our `win-16k-dmem-and-movie` branch, verified on the laptop 2026-10-08). The fixed build reads the same `%APPDATA%\bbhost\bbhost.toml`; on a new machine start `run-bbhost.bat --setup` once to enter the game folder and the `eboot.elf` path. It reports v0.0.0-unknown and never checks for updates.
+- `D:\bb\bbport\` — unzip `Bloodborne-Windows.zip` of **windows-v1.5** from https://github.com/Supermedo/bloodborne_pc/releases/tag/windows-v1.5 (2026-10-07; GitHub lists its SHA-256 as `4ce2c1898fd432af100af2bde18649ca8b27dd250a2e3a3c89a9c03ccedc99e8` — check with certutil). v1.5 added DLSS Super Resolution (RTX only; stays **off** for the route); v1.3 fixed the crash at the end of the opening cutscene; v1.4 lists a known defect: the character preview on the creation screen stays empty (record it; it is acknowledged upstream). Its launcher `Bloodborne.exe` shows an update notice bottom-left when a newer build exists — decline it during the test. The first start prepares the game image into `out\` (needs `sce_module`). Settings live in `bbport.ini` beside the exe (keys such as `upscaler`, `output_res`, `live_resolution`; the launcher's own options — game folder, fullscreen, FPS mode, update check — in `%APPDATA%\bbport-launcher`), saves and shader cache in `user\`, the log in `user\last_run.log`.
 - `D:\bb\results\bbhost\`, `D:\bb\results\bbport\` — logs, screenshots, your notes.
 
 Machine:
@@ -33,7 +35,7 @@ Machine:
 Settings — identical on both, written down before starting:
 - Output 2560×1440, borderless/fullscreen, frame cap 60, V-Sync off, **no upscaling** (bbport launcher: upscaler Off; bbhost F10: FSR 1 off).
 - bbhost: in F10, switch every "PC enhancement" off (mirror editor, rebirth, extra invaders) so both run the game as shipped. In the setup window's **Patches** tab leave `old-hunters` **on**: it makes the game treat itself as the edition that includes The Old Hunters, which this dump is licensed for. Everything else in that tab off.
-- bbport: 60 FPS mode, resolution 1440p, object motion vectors on (default), effects at defaults. bbport has no DLC support at all today (its AppContent answer lists zero add-ons), so The Old Hunters will not be recognised there — expected, not a defect of this run.
+- bbport: Graphics → Upscaler **Off** (the launcher defaults to FSR 4; not DLSS, not FSR, no TAA), FPS mode **60** (the default is unlocked), output resolution 1440p (1080p on the laptop), fullscreen on, present mode Mailbox (default), object motion vectors on (default), effects at defaults, no cheats. bbport has no DLC support at all today (its AppContent answer lists zero add-ons), so The Old Hunters will not be recognised there — expected, not a defect of this run.
 - 4K headroom check at the end (§2 step 9) is the only setting change.
 
 ## 1. The route — same order, same actions, ~45–60 minutes per tool
@@ -86,4 +88,4 @@ Then: stability 40 %, visual correctness 30 %, performance 15 %, input + audio 1
 
 ## 5. Send back
 
-Zip `D:\bb\results\` (bbhost: the console log — start it as `bbhost.exe 2> bbhost.log` — plus `%LOCALAPPDATA%\bbhost\` logs; bbport: `out\last_run.log` + any `crash-*.log`; the filled table; screenshots) — paste the table in chat or upload the zip; I take it from there.
+Zip `D:\bb\results\` (bbhost: the console log — start it as `bbhost.exe 2> bbhost.log` — plus `%LOCALAPPDATA%\bbhost\` logs; bbport: `user\last_run.log` + anything crash-like in `user\` or `out\`; the filled table; screenshots) — paste the table in chat or upload the zip; I take it from there.
