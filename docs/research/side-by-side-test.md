@@ -2,7 +2,7 @@
 
 Purpose: decide which project becomes our base. Same machine, same dump, same route, same settings. Budget ~2.5 hours. Written 2026-10-07, updated the same evening for the real dump; updated 2026-10-08: the dump is complete, the bbhost column uses our fixed build (the v0.2.14 release freezes in the intro movie on Windows), the bbport column uses Supermedo's windows-v1.5 (released 2026-10-07 with DLSS).
 
-Order: the laptop (RTX 3070 Ti 8 GB, 1920×1080, 60 FPS, no upscaling) runs each tool first, so the logs can be read live; the 3090 box then runs the full route at 1440p. Laptop status: bbhost done 2026-10-08 01:40–02:00 (run 7: launch, character creation, intro with sound, clinic, Dream, saves — all fine; performance not judged, the laptop ran on a weak charger); bbport pending.
+Order: the laptop (RTX 3070 Ti 8 GB, 1920×1080, 60 FPS, no upscaling) runs each tool first, so the logs can be read live; the 3090 box then runs the full route at 1440p. Laptop status: bbhost done 2026-10-08 01:40–02:00 (run 7: launch, character creation, intro with sound, clinic, Dream, saves — all fine; performance not judged, the laptop ran on a weak charger); bbport pending. Caveat for the verdict: Supermedo's build carries upstream's 0.2 core (upstream is at 0.4 since 2026-10-07; its 0.3/0.4 fixes and the new translation model are absent from every Windows build), so the bbport column measures the Windows port that exists today, not upstream's current renderer.
 
 ## Dump status (complete since 2026-10-08)
 
